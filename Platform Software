@@ -1,0 +1,95 @@
+django-admin startproject groove_vig
+cd groove_vig
+python manage.py startapp loyalty
+
+# loyalty/models.py
+
+from django.db import models
+from django.contrib.auth.models import User
+
+# User profile for storing loyalty-related data
+class Customer(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    tier = models.CharField(max_length=10, choices=[('Gold', 'Gold'), ('Silver', 'Silver'), ('Black', 'Black')], default='Gold')
+    points = models.IntegerField(default=0)
+    digital_wallet_balance = models.DecimalField(default=0.0, max_digits=10, decimal_places=2)
+    membership_card_number = models.CharField(max_length=15, unique=True)
+
+    def __str__(self):
+        return self.user.username
+
+class Transaction(models.Model):
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    transaction_type = models.CharField(max_length=10, choices=[('Purchase', 'Purchase'), ('Deposit', 'Deposit'), ('Refund', 'Refund')])
+    points_earned = models.IntegerField(default=0)
+    date = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.transaction_type} by {self.customer.user.username}'
+
+class Reward(models.Model):
+    name = models.CharField(max_length=100)
+    points_required = models.IntegerField()
+    reward_value = models.DecimalField(max_digits=10, decimal_places=2)
+
+    def __str__(self):
+        return self.name
+
+# loyalty/views.py
+
+from django.shortcuts import render, redirect
+from .models import Customer, Transaction, Reward
+from django.contrib.auth.decorators import login_required
+
+@login_required
+def earn_points(request, amount):
+    """Allocate points based on amount spent"""
+    customer = Customer.objects.get(user=request.user)
+    # Points allocation logic
+    if customer.tier == 'Gold':
+        points = int(amount * 0.1)  # 10% points for Gold
+    elif customer.tier == 'Silver':
+        points = int(amount * 0.15)  # 15% points for Silver
+    else:
+        points = int(amount * 0.2)  # 20% points for Black
+
+    customer.points += points
+    customer.save()
+
+    # Create a new transaction record
+    Transaction.objects.create(customer=customer, amount=amount, transaction_type='Purchase', points_earned=points)
+
+    return redirect('dashboard')
+
+@login_required
+def redeem_reward(request, reward_id):
+    """Redeem reward based on points"""
+    customer = Customer.objects.get(user=request.user)
+    reward = Reward.objects.get(id=reward_id)
+
+    if customer.points >= reward.points_required:
+        customer.points -= reward.points_required
+        customer.save()
+        # Here you could implement logic for redemption (e.g., discounts or free items)
+        return redirect('dashboard')
+    else:
+        return render(request, 'insufficient_points.html')
+
+# loyalty/urls.py
+
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('earn/<int:amount>/', views.earn_points, name='earn_points'),
+    path('redeem/<int:reward_id>/', views.redeem_reward, name='redeem_reward'),
+]
+Include the URLs in your project’s main URL file:
+# groove_vig/urls.py
+
+from django.urls import path, include
+
+urlpatterns = [
+    path('loyalty/', include('loyalty.urls')),
+]
